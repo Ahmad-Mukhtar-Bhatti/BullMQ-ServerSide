@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebSocket Client</title>
+</head>
+<body>
+  <script>
+    const clientId = "Client1ets";
+    let id=0;
+    const socket = new WebSocket(`ws://localhost:3000?clientId=${clientId}`);
+
+    // Connection opened
+    socket.addEventListener('open', (event) => {
+      console.log('Connected to server');
+    });
+
+    // Listen for messages from the server
+    socket.addEventListener('message', (event) => {
+      console.log(`Received from server: ${event.data}`);
+    });
+
+    // Send a message to the server
+    function sendMessage(){
+        console.log("Data Sent!");
+        const tasks = [
+        { user: "Client1", appID:"ets", totalData:"10", batchID:id, data:""},
+        { user: "Client1", appID:"ets", totalData:"10", batchID:id, data:""},
+        { user: "Client1", appID:"ets", totalData:"10", batchID:id, data:""},
+        { user: "Client1", appID:"ets", totalData:"10", batchID:id, data:""},
+        { user: "Client1", appID:"ets", totalData:"10", batchID:id, data:""},
+        { user: "Client1", appID:"ets", totalData:"10", batchID:id, data:""},
+        { user: "Client1", appID:"ets", totalData:"10", batchID:id, data:""},
+        { user: "Client1", appID:"ets", totalData:"10", batchID:id, data:""},
+        { user: "Client1", appID:"ets", totalData:"10", batchID:id, data:""},
+        { user: "Client1", appID:"ets", totalData:"10", batchID:id, data:""}
+        ];
+        socket.send(JSON.stringify(tasks));
+        id=id+1;
+    }
+
+  </script>
+
+  <button onclick="sendMessage()" style="font-size: 16px; padding: 10px; border-radius: 10px; margin-top: 15px; margin-left: 15px;">Send message</button>
+</body>
+</html>
