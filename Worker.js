@@ -1,41 +1,57 @@
 const { Worker } = require("bullmq");
 const Redis = require("ioredis");
 const logger = require("./logger");
-// const { createClient } = require('redis');
+const config = require("config");
+
+process.on("uncaughtException", (err) => {
+  logger.error("Uncaught Exception:", err);
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("Unhandled Rejection at:", promise, "reason:", reason);
+});
 
 logger.info("Staring Consumer");
 
 logger.info("Creating Redis Instance");
 const publisher = Redis.createClient();
 
-// const redisWorker = createClient({
-//     password: 'mj1Huv8rgFUsYOhmk3naB2WqVpiDjD54',
-//     socket: {
-//         host: 'redis-11355.c323.us-east-1-2.ec2.cloud.redislabs.com',
-//         port: 11355
-//     }
-// });
-// Create a Redis client
-const redisWorker = new Redis({
-  host: "127.0.0.1",
-  port: 6379,
-  maxRetriesPerRequest: null,
-});
+const redisWorker = new Redis(config.get("redis"));
 
 const worker = new Worker(
-  "myQueue",
+  config.get("queue"),
   (job) => {
     return new Promise((resolve, reject) => {
-      setTimeout(() => {
+      // We won't require the setTimeout function in the final implementation. This is just
+      setTimeout(async () => {
         try {
           logger.info("Processing Job!!!");
-          logger.info("Job Details:", job.id, job.name, job.data.someKey);
-          // job.updateProgress(100);
-          // resolve("Job completed!");
+          logger.info(
+            `Job Details: ${job.id}, ${job.name}, ${job.data.someKey},${job.opts.totalData}`
+          );
 
           const shouldResolve = Math.random() < 1.1;
 
           if (shouldResolve) {
+            // Perform job processing here
+
+            // The following are the number of steps a single job has to be divided in
+            const totalSteps = 10; // This number will be defined by the user
+
+            for (let step = 1; step <= totalSteps; step++) {
+              // Perform processing for each step...
+
+              // The following is just a mock implementation
+              await new Promise((resolve) =>
+                setTimeout(resolve, Math.random() * 1000)
+              );
+              // await new Promise((resolve) => setTimeout(resolve, 300));
+
+              const completedDataSize = 1 / totalSteps;
+
+              job.updateProgress(completedDataSize);
+            }
             // Resolve the promise
             resolve("Job completed!");
           } else {
@@ -43,26 +59,31 @@ const worker = new Worker(
             throw new Error("Job failed!");
           }
         } catch (error) {
-          // job.updateProgress(0);
           logger.error("Error in processing function:", error);
           reject(error);
         }
-      }, 7000);
+      }, 8000);
     });
   },
-  { connection: redisWorker }
+  { connection: redisWorker, concurrency: config.concurrency }
 );
+
+worker.on("progress", (job, progress) => {
+  logger.info(`Job ${job.id} is ${progress}% complete `);
+  publisher.publish(
+    config.channels[1],
+    JSON.stringify({ jobStr: job, progress: progress })
+  );
+});
 
 worker.on("completed", async (job) => {
   logger.info(`Job completed with result: ${job.id}`);
-  // job.updateProgress(100);
-  publisher.publish("jobCompleted", JSON.stringify({ jobStr: job }));
+  publisher.publish(config.channels[2], JSON.stringify({ jobStr: job }));
 });
 
-worker.on("failed", (job, err) => {
-  //job.updateProgress(0);
+worker.on("failed", async (job, err) => {
   logger.info(`Job ${job.id} failed: ${err.message}`);
-  publisher.publish("jobFailed", JSON.stringify({ jobStr: job }));
+  publisher.publish(config.channels[0], JSON.stringify({ jobStr: job }));
 });
 
 redisWorker.on("connect", () => {

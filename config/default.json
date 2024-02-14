@@ -1,0 +1,23 @@
+{
+    "name": "My App",
+    "queue": "myQueue",
+    "redis": {
+      "host": "127.0.0.1",
+      "port": 6379,
+      "maxRetriesPerRequest": null
+    },
+  
+    "actions": ["active", "wait", "failed", "completed", "inprogress"],
+    "channels": ["jobFailed", "jobProgress", "jobCompleted"],
+    "range": ["zrange", "lrange"],
+    "rem": ["zrem", "lrem"],
+    "jobFailedMessage": "Your Job has failed!",
+  
+    "delimeter": "_",
+    "batchdelimeter":"-",
+    "clientPort": 3001,
+    "concurrency": 1,
+    "level":"info",
+    "filename":"app.log"
+  }
+  

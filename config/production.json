@@ -1,0 +1,16 @@
+{
+  "name": "My App - Development",
+  "redis": {
+    "host": "127.0.0.1",
+    "port": 6379,
+    "maxRetriesPerRequest": null
+  },
+
+  "webSocketServer": {
+    "port": 3000
+  },
+
+  "level":"info",
+  "filename":"app.log"
+
+}
