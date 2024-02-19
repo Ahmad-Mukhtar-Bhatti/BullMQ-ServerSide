@@ -2,6 +2,8 @@ const WebSocket = require("ws");
 const Redis = require("ioredis");
 const logger = require("./logger");
 
+const createWorker = require("./worker");
+
 const config = require("config");
 
 const server = new WebSocket.Server(config.get("webSocketServer"));
@@ -19,7 +21,6 @@ process.on("unhandledRejection", (reason, promise) => {
   console.error("Unhandled Rejection at:", promise, "reason:", reason);
 });
 
-
 const subscriber = Redis.createClient();
 
 logger.info("Starting Producer .....");
@@ -31,25 +32,25 @@ logger.info("Application Name: " + config.get("name"));
 logger.info("Creating Queue .....");
 
 subscriber.on("message", async (channel, message) => {
-
-
   const job = JSON.parse(message).jobStr;
   let filteredKeys = [];
-  let totalProg = 0;  
-
+  let totalProg = 0;
 
   logger.info(`Message Published`);
   try {
     const value = job.opts.jobId.split(config.get("delimeter"));
     const jobName = job.name.split(config.get("batchdelimeter"));
 
-    let totalProgress = progressMap.get(jobName[0]);      // Getting total progress of each client;
+    if (!progressMap.has(jobName[0])) {
+      progressMap.set(jobName[0],0);
+    }
 
+    let totalProgress;
 
     const regex = new RegExp(`^${value[0]}_\\d+$`);
 
     // Function to handle Jobs from redis (this will call the function above)
-    const handleJobs = async (list, prog) => {
+    const handleJobs = async (list, tp, prog) => {
       let type =
         list === config.actions[3] || list === config.actions[2]
           ? config.range[0]
@@ -73,29 +74,30 @@ subscriber.on("message", async (channel, message) => {
           if (prog === config.actions[4]) {
             const socket = clients.get(jobName[0]);
             logger.info(`socket name ${socket}`);
-            logger.info(`Each job progress from worker ${JSON.parse(message).progress}`);
+            logger.info(`Total progress ${totalProgress}`);
+            logger.info(
+              `Each job progress from worker ${JSON.parse(message).progress}`
+            );
+            let currentStep =
+              (JSON.parse(message).progress / job.opts.totalData) * 100;
+            logger.info(`Total job progress calculated ${currentStep}`);
 
-            let currentStep = (JSON.parse(message).progress / job.opts.totalData) * 100;
-            logger.info(`Each job progress calculated ${currentStep}`);
-           
             if (typeof socket === "undefined") {
               // String is either undefined, null, or NaN
               logger.error("Invalid socket");
             } else {
-              
-              totalProgress = progressMap.get(jobName[0]);      // Getting total progress of each client
-              
-              totalProgress = totalProgress + currentStep;
-              totalProg = totalProgress;
+              totalProgress = progressMap.get(jobName[0]); // Getting total progress of each client
+              logger.info(`Job progress from Map ${totalProgress}`);
+              if (totalProgress != undefined) {
+                totalProgress = totalProgress + currentStep;
+                totalProg = totalProgress;
+                socket.send(`Following is your progress:${totalProg}`);
 
-              socket.send(`Following is your progress:${totalProg}`);
-
-              progressMap.set(jobName[0], totalProgress); // Setting the total progress of each client in the map
-
+                progressMap.set(jobName[0], totalProgress); // Setting the total progress of each client in the map
+              }
               if (totalProg == 100) {
                 progressMap.set(jobName[0], 0);
               }
-              
             }
           } else if (!(list === config.actions[3] && totalProgress != 100)) {
             // The code below won't work if you have to evict from completed queue and the total progress hasn't reached 100 yet
@@ -128,7 +130,7 @@ subscriber.on("message", async (channel, message) => {
       handleJobs(config.actions[0]); // Remove jobs from the active channel of the BullMQ
       handleJobs(config.actions[1]); // Remove jobs from the wait channel of the BullMQ
       handleJobs(config.actions[2]); // Remove jobs from the active channel of the BullMQ
-      // handleJobs(config.actions[3], 100); // setting total Progress 100 so the jobs can be removed from the completed queue
+      handleJobs(config.actions[3], 100); // setting total Progress 100 so the jobs can be removed from the completed queue
 
       const socket = clients.get(jobName[0]);
       logger.debug(jobName[0]);
@@ -136,11 +138,11 @@ subscriber.on("message", async (channel, message) => {
         logger.error("Invalid socket");
       } else {
         socket.send(config.get("jobFailedMessage"));
-        
-        progressMap.set(jobName[0], 0);   // Setting total progress for the client to 0
+
+        progressMap.set(jobName[0], 0); // Setting total progress for the client to 0
       }
     } else if (channel === config.channels[1]) {
-      handleJobs(config.actions[3], config.actions[4]);
+      handleJobs(config.actions[3], 0, config.actions[4]);
     }
   } catch (error) {
     logger.debug("Error in processing:", error);
@@ -157,14 +159,30 @@ server.on("connection", (socket, request) => {
     : null;
   logger.info(`Client connected: ${clientId}` + socket);
 
+  createWorker(config.queue + clientId);
   if (!socket) {
     logger.error("Socket is null.");
     return;
   }
+  socket.on("close", () => {
+    logger.info(`Socket closed for client: ${clientId}`);
+
+    redisClient.del("bull:myQueue:" + clientId + ":", (err, reply) => {
+      if (err) {
+        console.error(
+          `Error deleting queue ${config.queue + clientId} from Redis:`,
+          err
+        );
+      } else {
+        console.log(
+          `Deleted queue ${config.queue + clientId} from Redis. Reply:`,
+          reply
+        );
+      }
+    });
+  });
 
   clients.set(clientId, socket);
-
-  progressMap.set(clientId, 0);
 
   if (clientId) {
     socket.send(`Hello, client: ${clientId}!`);
